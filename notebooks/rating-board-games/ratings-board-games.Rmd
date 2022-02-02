@@ -1,0 +1,192 @@
+---
+title: "Predict ratings for #TidyTuesday board games"
+output: github_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(cache = FALSE, warning = FALSE, message = FALSE, 
+                      echo = TRUE, dpi = 300, cache.lazy = FALSE,
+                      tidy = "styler", fig.width = 8, fig.height = 5)
+library(reticulate)
+library(tidyverse, quietly = TRUE)
+theme_set(theme_minimal())
+update_geom_defaults("rect", list(fill = "midnightblue", alpha = 0.8))
+```
+
+Original notebook: https://juliasilge.com/blog/board-games/
+
+# Explore data
+
+### Distribution average ratings
+
+```{r}
+ratings <- read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2022/2022-01-25/ratings.csv", col_types = cols())
+details <- read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2022/2022-01-25/details.csv", col_types = cols())
+
+ratings_joined <-
+  ratings %>%
+  left_join(details, by = "id")
+
+ggplot(ratings_joined, aes(average)) +
+  geom_histogram(alpha = 0.8)
+```
+
+```{python}
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+ratings = pd.read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2022/2022-01-25/ratings.csv")
+details = pd.read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2022/2022-01-25/details.csv")
+
+ratings_joined = pd.merge(ratings, details, on="id", how="left")
+
+plt.cla()
+sns.histplot(data=ratings_joined, x="average", alpha=.8)
+plt.show()
+```
+
+### Distribution minimum age
+
+```{r}
+ratings_joined %>%
+  filter(!is.na(minage)) %>%
+  mutate(minage = cut_number(minage, 4)) %>%
+  ggplot(aes(minage, average, fill = minage)) +
+  geom_boxplot(alpha = 0.2, show.legend = FALSE)
+```
+
+
+```{python}
+p_df = (
+ratings_joined
+  [ratings_joined["minage"].notnull()]
+  .assign(minage = lambda x: pd.cut(x["minage"], bins=4))
+  .copy()
+)
+
+plt.cla()
+ng = sns.boxplot(data=p_df, x="minage", y="average", hue="minage")
+plt.legend([], [], frameon=False)
+plt.show()
+```
+
+
+# Tune and xgboost model
+
+### Train and test split
+
+```{r}
+library(tidymodels)
+
+set.seed(123)
+game_split <-
+  ratings_joined %>%
+  select(name, average, matches("min|max"), boardgamecategory) %>%
+  na.omit() %>%
+  initial_split(strata = average)
+game_train <- training(game_split)
+game_test <- testing(game_split)
+
+set.seed(234)
+game_folds <- vfold_cv(game_train, strata = average)
+```
+
+
+```{python}
+from xgboost import XGBRegressor
+from sklearn.model_selection import train_test_split
+
+np.random.seed(123)
+df1 = (
+ratings_joined
+  .filter(["name","average", "boardgamecategory"])
+)
+df2 = (
+ratings_joined
+  .filter(regex=("min|max"))
+)
+game_split = pd.concat([df1, df2], axis=1).dropna()
+
+X = game_split.drop(columns=["average"])
+y = game_split["average"]
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=234)
+```
+
+
+### Preprocessing 
+
+```{r}
+library(textrecipes)
+
+split_category <- function(x) {
+  x %>%
+    str_split(", ") %>%
+    map(str_remove_all, "[:punct:]") %>%
+    map(str_squish) %>%
+    map(str_to_lower) %>%
+    map(str_replace_all, " ", "_")
+}
+
+game_rec <-
+  recipe(average ~ ., data = game_train) %>%
+  update_role(name, new_role = "id") %>%
+  step_tokenize(boardgamecategory, custom_token = split_category) %>%
+  step_tokenfilter(boardgamecategory, max_tokens = 30) %>%
+  step_tf(boardgamecategory)
+
+## just to make sure this works as expected
+game_prep <- prep(game_rec)
+bake(game_prep, new_data = NULL) %>% str()
+```
+
+```{python}
+from sklearn.preprocessing import 
+```
+
+
+### Model creation
+
+```{r}
+xgb_spec <-
+  boost_tree(
+    trees = tune(),
+    mtry = tune(),
+    min_n = tune(),
+    learn_rate = 0.01
+  ) %>%
+  set_engine("xgboost") %>%
+  set_mode("regression")
+
+xgb_wf <- workflow(game_rec, xgb_spec)
+xgb_wf
+```
+
+
+### Improve performance
+
+```{r}
+library(finetune)
+doParallel::registerDoParallel()
+
+set.seed(234)
+xgb_game_rs <-
+  tune_race_anova(
+    xgb_wf,
+    game_folds,
+    grid = 20,
+    control = control_race(verbose_elim = TRUE)
+  )
+
+xgb_game_rs
+```
+
+
+# Evaluate models
+
+### Plotting variable importance

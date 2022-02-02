@@ -1,0 +1,110 @@
+---
+title: "K-Means and employment status"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(cache = FALSE, warning = FALSE, message = FALSE, 
+                      echo = TRUE, dpi = 300, cache.lazy = FALSE,
+                      tidy = "styler", fig.width = 8, fig.height = 5)
+library(reticulate)
+library(tidyverse, quietly = TRUE)
+theme_set(theme_minimal())
+update_geom_defaults("rect", list(fill = "midnightblue", alpha = 0.8))
+```
+
+Original notebook https://juliasilge.com/blog/kmeans-employment/.
+
+## Explore the data
+
+```{r}
+library(tidyverse)
+
+employed <- read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-02-23/employed.csv")
+```
+
+
+
+```{r}
+employed_tidy <- employed %>%
+  filter(!is.na(employ_n)) %>%
+  group_by(occupation = paste(industry, minor_occupation), race_gender) %>%
+  summarise(n = mean(employ_n)) %>%
+  ungroup()
+```
+
+
+
+```{r}
+employment_demo <- employed_tidy %>%
+  filter(race_gender %in% c("Women", "Black or African American", "Asian")) %>%
+  pivot_wider(names_from = race_gender, values_from = n, values_fill = 0) %>%
+  janitor::clean_names() %>%
+  left_join(employed_tidy %>%
+    filter(race_gender == "TOTAL") %>%
+    select(-race_gender) %>%
+    rename(total = n)) %>%
+  filter(total > 1e3) %>%
+  mutate(across(c(asian, black_or_african_american, women), ~ . / (total)),
+    total = log(total),
+    across(where(is.numeric), ~ as.numeric(scale(.)))
+  ) %>%
+  mutate(occupation = snakecase::to_snake_case(occupation))
+
+employment_demo
+```
+
+# Implement k-means clustering
+
+```{r}
+employment_clust <- kmeans(select(employment_demo, -occupation), centers = 3)
+summary(employment_clust)
+```
+
+```{r}
+library(broom)
+tidy(employment_clust)
+```
+
+
+```{r}
+augment(employment_clust, employment_demo) %>%
+  ggplot(aes(total, black_or_african_american, color = .cluster)) +
+  geom_point()
+```
+
+
+# Choosing k
+
+```{r}
+kclusts <-
+  tibble(k = 1:9) %>%
+  mutate(
+    kclust = map(k, ~ kmeans(select(employment_demo, -occupation), .x)),
+    glanced = map(kclust, glance),
+  )
+
+kclusts %>%
+  unnest(cols = c(glanced)) %>%
+  ggplot(aes(k, tot.withinss)) +
+  geom_line(alpha = 0.5, size = 1.2, color = "midnightblue") +
+  geom_point(size = 2, color = "midnightblue")
+```
+
+
+```{r}
+final_clust <- kmeans(select(employment_demo, -occupation), centers = 5)
+```
+
+
+```{r}
+library(plotly)
+
+p <- augment(final_clust, employment_demo) %>%
+  ggplot(aes(total, women, color = .cluster, name = occupation)) +
+  geom_point()
+
+ggplotly(p, height = 500)
+```
+
