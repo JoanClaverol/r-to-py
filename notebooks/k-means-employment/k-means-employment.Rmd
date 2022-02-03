@@ -16,27 +16,61 @@ update_geom_defaults("rect", list(fill = "midnightblue", alpha = 0.8))
 
 Original notebook https://juliasilge.com/blog/kmeans-employment/.
 
-## Explore the data
+# Explore the data
 
 ```{r}
+# r
 library(tidyverse)
 
 employed <- read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-02-23/employed.csv")
 ```
 
+```{python}
+# py
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
 
+employed = pd.read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-02-23/employed.csv")
+```
+
+## Focusing on the industry and occupation
 
 ```{r}
-employed_tidy <- employed %>%
+# r
+employed_tidy <-
+employed %>%
   filter(!is.na(employ_n)) %>%
   group_by(occupation = paste(industry, minor_occupation), race_gender) %>%
   summarise(n = mean(employ_n)) %>%
   ungroup()
+
+employed_tidy %>% 
+  head() %>% 
+  kable()
 ```
 
-
+```{python}
+# py
+employed_tidy = (
+employed
+  .loc[employed.employ_n.notnull()]
+  .assign(occupation = lambda x: x["industry"] + x["minor_occupation"])
+  .groupby(["occupation","race_gender"])
+  .agg(n = ("employ_n","mean"))
+  .reset_index()
+)
+```
 
 ```{r}
+kable(py$employed_tidy %>% head())
+```
+
+## Prepare data for k-means 
+
+```{r}
+# r
 employment_demo <- employed_tidy %>%
   filter(race_gender %in% c("Women", "Black or African American", "Asian")) %>%
   pivot_wider(names_from = race_gender, values_from = n, values_fill = 0) %>%
@@ -52,32 +86,115 @@ employment_demo <- employed_tidy %>%
   ) %>%
   mutate(occupation = snakecase::to_snake_case(occupation))
 
-employment_demo
+employment_demo %>% head() %>% kable()
 ```
+
+
+```{python}
+# py
+df1 = (
+employed_tidy
+  .query("race_gender == ['Women', 'Black or African American', 'Asian']")
+  .pivot(index = "occupation", columns = "race_gender", values = "n")
+  .fillna(0)
+  .rename(columns = lambda x: x.replace(" ", "_").lower())
+  .reset_index()
+  .merge(
+    employed_tidy
+      .query("race_gender == 'TOTAL'")
+      .drop(columns = ["race_gender"])
+      .rename(columns={"n":"total"}),
+    on = "occupation",
+    how = "left"
+  )
+  .query("total > 1e3")
+  .assign(
+    occupation = lambda x: (
+      x["occupation"]
+      .str.lower()
+      .str.replace(r'[^\w\s]+', '', regex=True)
+      .str.replace(" ","_"))
+    )
+)
+
+
+def div_total(col, total): 
+  return col / total
+
+def scaler(col): 
+  return (col-np.mean(col))/np.std(col)
+
+df2 = (
+df1
+  [["asian","black_or_african_american","women","total"]]
+  .apply(lambda x: div_total(x, x["total"]), axis=1)
+  .drop(columns=["total"])
+  .assign(total = np.log(df1["total"]))
+  .apply(lambda x: scaler(x), axis=0)
+)
+
+employment_demo = (
+pd.concat(
+  [df1.drop(columns=["asian","women", "black_or_african_american","total"]), df2],
+  axis = 1
+  )
+)
+```
+
+```{r}
+py$employment_demo %>% head() %>% kable()
+```
+
 
 # Implement k-means clustering
 
 ```{r}
+# r
+set.seed(123)
 employment_clust <- kmeans(select(employment_demo, -occupation), centers = 3)
 summary(employment_clust)
-```
 
-```{r}
 library(broom)
 tidy(employment_clust)
 ```
 
+```{python}
+# py
+np.random.seed(123)
+from sklearn.cluster import KMeans
+kmeans = KMeans(n_clusters = 3)
+
+kmeans_data = employment_demo.drop(columns=["occupation"]) 
+kmeans.fit(kmeans_data)
+
+pd.DataFrame(
+  kmeans.cluster_centers_, 
+  columns=kmeans_data.columns
+  )
+```
+
+## Visualise kmeans
 
 ```{r}
+# r
 augment(employment_clust, employment_demo) %>%
   ggplot(aes(total, black_or_african_american, color = .cluster)) +
   geom_point()
 ```
 
+```{python}
+# py
+p_df = kmeans_data.assign(cluster = kmeans.predict(kmeans_data))
+
+plt.cla()
+sns.scatterplot(data=p_df, y="black_or_african_american", x="total", hue="cluster")
+plt.show()
+```
 
 # Choosing k
 
 ```{r}
+# r
 kclusts <-
   tibble(k = 1:9) %>%
   mutate(
@@ -91,20 +208,34 @@ kclusts %>%
   geom_line(alpha = 0.5, size = 1.2, color = "midnightblue") +
   geom_point(size = 2, color = "midnightblue")
 ```
+```{python}
+# py
+max_k = 10
+inertia = []
 
+for k in range(1, max_k): 
+    inertia.append(KMeans(n_clusters=k).fit(kmeans_data).inertia_)
+
+fig, ax = plt.subplots(figsize=(12, 6))
+plt.title(f'Inertia evolution from 1 cluster to {max_k} cluster')
+sns.lineplot(x=range(1, max_k), y=inertia)
+sns.scatterplot(x=range(1, max_k), y=inertia)
+plt.xlabel('Number of clusters')
+plt.ylabel('Inertia')
+plt.show()
+```
+## Deciding final cluster
 
 ```{r}
+# r
 final_clust <- kmeans(select(employment_demo, -occupation), centers = 5)
 ```
 
 
-```{r}
-library(plotly)
-
-p <- augment(final_clust, employment_demo) %>%
-  ggplot(aes(total, women, color = .cluster, name = occupation)) +
-  geom_point()
-
-ggplotly(p, height = 500)
+```{python}
+# py
+kmeans = KMeans(n_clusters = 5)
+final_clust = kmeans.fit(employment_demo.drop(columns=["occupation"]))
 ```
+
 
