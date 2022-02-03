@@ -224,6 +224,7 @@ plt.xlabel('Number of clusters')
 plt.ylabel('Inertia')
 plt.show()
 ```
+
 ## Deciding final cluster
 
 ```{r}
