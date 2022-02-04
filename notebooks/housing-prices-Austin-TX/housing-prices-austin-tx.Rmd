@@ -69,17 +69,24 @@ p_df["priceRange"] = (
   .apply(lambda x: clean_price_range(x))
   )
 
+xmin = p_df["longitude"].min() - .01
+xmax = p_df["longitude"].max() + .01
+ymin = p_df["latitude"].min() - .01
+ymax = p_df["latitude"].max() + .01
+
 plt.cla()
-palette = sns.color_palette("viridis", as_cmap=True)
-sns.jointplot(
-  data = p_df, 
-  x="longitude", y="latitude", 
-  hue="priceRange",
-  cmap="viridis",
-  palette=palette
+fig, ax = plt.subplots(ncols=1, sharey=True, figsize=(8, 5))
+
+hb = plt.hexbin(
+  p_df["longitude"], p_df["latitude"], C=p_df["priceRange"], 
+  gridsize=50, cmap='viridis', 
+  alpha=.8
   )
-plt.title("Price")
-plt.show()
+_ = ax.set(xlim=(xmin, xmax), ylim=(ymin, ymax))
+_ = ax.set_title("Price")
+cb = fig.colorbar(hb, ax=ax)
+
+# plt.show()
 ```
 
 ## More information with charts
@@ -103,44 +110,35 @@ library(patchwork)
   (plot_austin(yearBuilt, "Year built") + plot_austin(log(lotSizeSqFt), "Lot size (log)"))
 ```
 
+
+
 ```{python}
 # py
-def plot_austin(var, title): 
-  sns.jointplot(
-    data = p_df, 
-    x="longitude", y="latitude", 
-    hue=var,
-    cmap="viridis",
-    palette=palette
-  )
-  plt.title(title)
-  # plt.show()
+xmin = p_df["longitude"].min() - .01
+xmax = p_df["longitude"].max() + .01
+ymin = p_df["latitude"].min() - .01
+ymax = p_df["latitude"].max() + .01
 
 plt.cla()
-fig, (ax1, ax2) = plt.subplots(2, 2)
+fig, axs = plt.subplots(ncols=2, nrows=2, sharey=True, figsize=(8, 5))
+fig.subplots_adjust(hspace=0.5, left=0.07, right=0.93)
 
-# 1
-plt.subplot(1, 2, 1)
-plot_austin("avgSchoolRating", "School rating")
+col_names = ["priceRange","avgSchoolRating","yearBuilt","lotSizeSqFt"]
+col_pos = 0
+for col in range(2): 
+  for row in range(2):
+    ax = axs[col,row]
+    hb = ax.hexbin(
+      p_df["longitude"], p_df["latitude"], C=p_df[col_names[col_pos]], 
+      gridsize=50, cmap='viridis', 
+      alpha=.8
+      )
+    _ = ax.set(xlim=(xmin, xmax), ylim=(ymin, ymax))
+    _ = ax.set_title(col_names[col_pos])
+    cb = fig.colorbar(hb, ax=ax)
+    col_pos += 1
+
 plt.show()
-
-# 2
-plt.subplot(1, 2, 2)
-plot_austin("yearBuilt", "Year built")
-plt.show()
-
-# 3
-plt.subplot(1, 1, 1)
-plot_austin("avgSchoolRating", "School rating")
-plt.show()
-
-# 4
-plt.cla()
-plt.subplot(2, 2, 1)
-plot_austin("lotSizeSqFt", "Lot size (log)")
-plt.show()
-
-
 ```
 
 
