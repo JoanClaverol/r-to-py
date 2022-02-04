@@ -91,10 +91,10 @@ _ = ax.set(xlim=(xmin, xmax), ylim=(ymin, ymax))
 _ = ax.set_title("Price")
 cb = fig.colorbar(hb, ax=ax)
 
-plt.show()
+# plt.show()
 ```
 
-<img src="housing-prices-austin-tx_files/figure-gfm/unnamed-chunk-4-1.png" width="768" /><img src="housing-prices-austin-tx_files/figure-gfm/unnamed-chunk-4-2.png" width="768" />
+<img src="housing-prices-austin-tx_files/figure-gfm/unnamed-chunk-4-1.png" width="768" />
 
 ## More information with charts
 
@@ -116,7 +116,7 @@ library(patchwork)
   (plot_austin(yearBuilt, "Year built") + plot_austin(log(lotSizeSqFt), "Lot size (log)"))
 ```
 
-![](housing-prices-austin-tx_files/figure-gfm/unnamed-chunk-5-5.png)<!-- -->
+![](housing-prices-austin-tx_files/figure-gfm/unnamed-chunk-5-3.png)<!-- -->
 
 ``` python
 # py
