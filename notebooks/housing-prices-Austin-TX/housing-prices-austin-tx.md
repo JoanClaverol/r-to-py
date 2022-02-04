@@ -144,7 +144,7 @@ for col in range(2):
     cb = fig.colorbar(hb, ax=ax)
     col_pos += 1
 
-plt.show()
+# plt.show()
 ```
 
-<img src="housing-prices-austin-tx_files/figure-gfm/unnamed-chunk-6-1.png" width="768" /><img src="housing-prices-austin-tx_files/figure-gfm/unnamed-chunk-6-2.png" width="768" />
+<img src="housing-prices-austin-tx_files/figure-gfm/unnamed-chunk-6-1.png" width="768" />

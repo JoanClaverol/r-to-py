@@ -138,7 +138,7 @@ for col in range(2):
     cb = fig.colorbar(hb, ax=ax)
     col_pos += 1
 
-plt.show()
+# plt.show()
 ```
 
 
