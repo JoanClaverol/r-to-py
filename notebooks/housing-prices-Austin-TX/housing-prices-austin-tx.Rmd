@@ -110,8 +110,6 @@ library(patchwork)
   (plot_austin(yearBuilt, "Year built") + plot_austin(log(lotSizeSqFt), "Lot size (log)"))
 ```
 
-
-
 ```{python}
 # py
 xmin = p_df["longitude"].min() - .01
@@ -141,8 +139,94 @@ for col in range(2):
 # plt.show()
 ```
 
+# Finding words related to price
+
+## Tidy data
+
+```{r}
+# r
+library(tidytext)
+
+austin_tidy <-
+  train_raw %>%
+  mutate(priceRange = parse_number(priceRange) + 100000) %>%
+  unnest_tokens(word, description) %>%
+  anti_join(get_stopwords(), by="word")
+
+austin_tidy %>%
+  count(word, sort = TRUE) %>% 
+  head()
+```
+
+```{python}
+# py
+austin_tidy = (
+train_raw
+  .assign(priceRange = lambda x: (
+    x["priceRange"].apply(lambda x: clean_price_range(x))) + 100000
+  )
+  .copy()
+)
+```
 
 
+## Words frequency
+
+```{r}
+# r
+top_words <-
+  austin_tidy %>%
+  count(word, sort = TRUE) %>%
+  filter(!word %in% as.character(1:5)) %>%
+  slice_max(n, n = 100) %>%
+  pull(word)
 
 
+word_freqs <-
+  austin_tidy %>%
+  count(word, priceRange) %>%
+  complete(word, priceRange, fill = list(n = 0)) %>%
+  group_by(priceRange) %>%
+  mutate(
+    price_total = sum(n),
+    proportion = n / price_total
+  ) %>%
+  ungroup() %>%
+  filter(word %in% top_words)
+
+
+word_freqs %>% head()
+```
+
+## Create our model
+
+```{r}
+word_mods <-
+  word_freqs %>%
+  nest(data = c(priceRange, n, price_total, proportion)) %>%
+  mutate(
+    model = map(data, ~ glm(cbind(n, price_total) ~ priceRange, ., family = "binomial")),
+    model = map(model, tidy)
+  ) %>%
+  unnest(model) %>%
+  filter(term == "priceRange") %>%
+  mutate(p.value = p.adjust(p.value)) %>%
+  arrange(-estimate)
+
+word_mods %>% head()
+```
+
+## Relationship between p-value and effect size for these word
+
+```{r}
+# r
+library(ggrepel)
+
+word_mods %>%
+  ggplot(aes(estimate, p.value)) +
+  geom_vline(xintercept = 0, lty = 2, alpha = 0.7, color = "gray50") +
+  geom_point(color = "midnightblue", alpha = 0.8, size = 2.5) +
+  scale_y_log10() +
+  geom_text_repel(aes(label = word))
+```
 
